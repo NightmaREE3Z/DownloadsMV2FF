@@ -10,10 +10,11 @@ A simple, yet effective download manager extension for your browser, built using
 - **Seamless Integration**: Blends with your browser’s user interface.
 - **Customizable Icons**: Uses color-coded icons for each state (in-progress, completed, cleared).
 
+The extension will be available for download at **[Firefox Add-ons](https://addons.mozilla.org/en-US/firefox/addon/mv2-download-manager/)** once it gets approved.
+
 ### Installation:
-1. The extension will be available for download at **[Firefox Add-ons](https://addons.mozilla.org/en-US/firefox/addon/mv2-download-manager/)** once it gets approved.
    
-2. **Install from GitHub (manual):**
+1. **Install from GitHub (manual):**
    - Clone this repository and load it as an unpacked extension:
      1. Go to `about:addons` in your browser.
      2. Click *Gear icon* to your right, then click **Install add-on from file** and go to the folder where the .xpi file is located and double click on it.
