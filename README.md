@@ -11,8 +11,7 @@ A simple, yet effective download manager extension for your browser, built using
 - **Customizable Icons**: Uses color-coded icons for each state (in-progress, completed, cleared).
 
 ### Installation:
-1. **Firefox Add-Ons (coming soon, maybe)**: 
-   - The extension will be available for download soon on [Firefox Add-ons](https://addons.mozilla.org/en-US/firefox/addon/mv2-download-manager/), once it gets approved.
+1. The extension will be available for download at **[Firefox Add-ons](https://addons.mozilla.org/en-US/firefox/addon/mv2-download-manager/)** once it gets approved.
    
 2. **Install from GitHub (manual):**
    - Clone this repository and load it as an unpacked extension:
