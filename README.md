@@ -12,7 +12,7 @@ A simple, yet effective download manager extension for your browser, built using
 
 ### Installation:
 
-1. **Install from** [Firefox Add-ons](https://addons.mozilla.org/en-US/firefox/addon/mv2-download-manager/) once it gets approved there.
+1. **Install from** [Firefox Add-ons](https://addons.mozilla.org/en-US/firefox/addon/mv2-download-manager/) once it gets approved there.**
    
 2. **Install from GitHub (manual):**
    - Clone this repository and load it as an unpacked extension:
