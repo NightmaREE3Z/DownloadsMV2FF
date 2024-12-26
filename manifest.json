@@ -1,0 +1,50 @@
+{
+  "manifest_version": 2,
+  "name": "MV2 Download Manager for Firefox",
+  "short_name": "MV2 Download Manager FF",
+  "version": "2.0",
+  "description": "A clean and modern download manager for your everyday download tasks.",
+  "background": {
+    "scripts": ["js/background.js"],
+    "persistent": true
+  },
+  "browser_action": {
+    "default_icon": {
+      "16": "icons/iconblue.png",
+      "48": "icons/iconblue48.png",
+      "128": "icons/iconblue128.png"
+    },
+    "default_popup": "popup.html",
+    "default_title": "Downloads"
+  },
+  "icons": {
+    "16": "icons/iconblue.png",
+    "48": "icons/iconblue48.png",
+    "128": "icons/iconblue128.png"
+  },
+  "permissions": [
+    "activeTab",
+    "downloads",
+    "downloads.open",
+    "storage"
+  ],
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "downloads-mv2@nightmaree3z.com",
+      "strict_min_version": "79.0"
+    }
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["js/gizmo.js"]
+    }
+  ],
+  "web_accessible_resources": [
+    "icons/iconblue48.png",
+    "icons/iconyellow.png",
+    "icons/icongreen.png"
+  ],
+  "content_security_policy": "script-src 'self'; object-src 'self'; style-src 'self' 'unsafe-inline'",
+  "incognito": "spanning"
+}
