@@ -7,26 +7,16 @@ const Format = {
   toByte: function(bytes) {
     if (!bytes) return "0 B";
     if (bytes < 1000 * 1000) return (bytes / 1000).toFixed() + " KB";
-    if (bytes < 1000 * 1000 * 10)
-      return (bytes / 1000 / 1000).toFixed(1) + " MB";
-    if (bytes < 1000 * 1000 * 1000)
-      return (bytes / 1000 / 1000).toFixed() + " MB";
-    if (bytes < 1000 * 1000 * 1000 * 1000)
-      return (bytes / 1000 / 1000 / 1000).toFixed(1) + " GB";
+    if (bytes < 1000 * 1000 * 10) return (bytes / 1000 / 1000).toFixed(1) + " MB";
+    if (bytes < 1000 * 1000 * 1000) return (bytes / 1000 / 1000).toFixed() + " MB";
+    if (bytes < 1000 * 1000 * 1000 * 1000) return (bytes / 1000 / 1000 / 1000).toFixed(1) + " GB";
     return bytes + " B";
   },
   toTime: function(sec) {
     if (sec < 60) return Math.ceil(sec) + " secs";
-    if (sec < 60 * 5)
-      return Math.floor(sec / 60) + " mins " + Math.ceil(sec % 60) + " secs";
+    if (sec < 60 * 5) return Math.floor(sec / 60) + " mins " + Math.ceil(sec % 60) + " secs";
     if (sec < 60 * 60) return Math.ceil(sec / 60) + " mins";
-    if (sec < 60 * 60 * 5)
-      return (
-        Math.floor(sec / 60 / 60) +
-        " hours " +
-        (Math.ceil(sec / 60) % 60) +
-        " mins"
-      );
+    if (sec < 60 * 60 * 5) return Math.floor(sec / 60 / 60) + " hours " + (Math.ceil(sec / 60) % 60) + " mins";
     if (sec < 60 * 60 * 24) return Math.ceil(sec / 60 / 60) + " hours";
     return Math.ceil(sec / 60 / 60 / 24) + " days";
   }
@@ -34,23 +24,15 @@ const Format = {
 
 const Template = {
   button: function(type, action, text) {
-    const button = document.createElement("button");
-    button.className = `button button--${type}`;
-    button.dataset.action = action;
-    button.textContent = text;
-    return button;
+    return `<button class="button button--${type}" data-action="${action}">${text}</button>`;
   },
   buttonShowMore: function() {
-    const button = document.createElement("button");
-    button.className = "button button--secondary button--block";
-    button.dataset.action = "more";
-    button.textContent = "Show more";
-    return button;
+    return `<button class="button button--secondary button--block" data-action="more">Show more</button>`;
   }
 };
 
 const App = {
-  timers: {},
+  timers: [],
   resultsLength: 0,
   resultsLimit: 10,
   init: function() {
@@ -62,22 +44,11 @@ const App = {
       browser.runtime.sendMessage("popup_open");
     });
 
-    browser.downloads.onCreated.addListener(event => {
-      const $target = $("#downloads");
-      const $state = $target.querySelector(".state");
-      if ($state) $target.removeChild($state);
-
-      const $newEl = this.getDownloadViewElement(event);
-      $target.insertBefore($newEl, $target.firstChild);
-      if ($target.children.length > this.resultsLimit) {
-        $target.removeChild($target.children[this.resultsLimit - 1]);
+    browser.runtime.onMessage.addListener((message) => {
+      if (message.type === "download_created" || message.type === "download_changed") {
+        this.render();
       }
-    });
-
-    browser.downloads.onChanged.addListener(delta => {
-      if (delta.filename) this.refreshDownloadView(delta.id);
-      if (delta.danger && delta.danger.current === "accepted")
-        $(`#download-${delta.id}`).classList.remove("danger");
+      return Promise.resolve({ status: "Message received in popup" });
     });
 
     $("#main").on("scroll", () => {
@@ -95,9 +66,25 @@ const App = {
         if (running.length) {
           this.render();
         } else {
-          const tmplStateEmpty = this.elementFromHtml($("#tmpl__state-empty").innerHTML);
-          $("#downloads").textContent = ''; // Clear the current content
-          $("#downloads").appendChild(tmplStateEmpty);
+          // Create empty state without innerHTML
+          const downloadsContainer = $("#downloads");
+          if (downloadsContainer) {
+            downloadsContainer.textContent = ""; // Clear safely
+            
+            const emptyDiv = document.createElement("div");
+            emptyDiv.className = "empty-state";
+            
+            const emptyIcon = document.createElement("div");
+            emptyIcon.className = "empty-state__icon";
+            emptyDiv.appendChild(emptyIcon);
+            
+            const emptyText = document.createElement("div");
+            emptyText.className = "empty-state__text";
+            emptyText.textContent = "No downloads yet";
+            emptyDiv.appendChild(emptyText);
+            
+            downloadsContainer.appendChild(emptyDiv);
+          }
         }
       });
     });
@@ -105,271 +92,348 @@ const App = {
     $("#downloads").on("click", this.handleClick.bind(this));
   },
   render: function() {
-    browser.downloads.search({ limit: 0 }, () => {
-      browser.downloads.search(
-        {
-          limit: this.resultsLimit + 1,
-          filenameRegex: ".+",
+    browser.downloads.search({
+      limit: 0,
+    }).then(() => {
+      browser.downloads.search({
+        limit: this.resultsLimit + 1,
+        orderBy: ["-startTime"]
+      }).then(data => {
+        this.resultsLength = data.length;
+        browser.downloads.search({
+          limit: this.resultsLimit,
           orderBy: ["-startTime"]
-        },
-        data => {
-          this.resultsLength = data.length;
-          browser.downloads.search(
-            {
-              limit: this.resultsLimit,
-              filenameRegex: ".+",
-              orderBy: ["-startTime"]
-            },
-            this.getDownloadsView.bind(this)
-          );
-        }
-      );
+        }).then(results => {
+          this.displayDownloads(results);
+        });
+      });
+    }).catch(error => {
+      console.error("Error fetching downloads:", error);
     });
   },
-  getDownloadsView: function(results) {
-    let _this = App;
-    let fragment = document.createDocumentFragment();
-
+  displayDownloads: function(results) {
+    const $target = $("#downloads");
+    if (!$target) return;
+    
+    // Clear the container safely
+    $target.textContent = "";
+    
+    if (!results || !results.length) {
+      // Create empty state
+      const emptyDiv = document.createElement("div");
+      emptyDiv.className = "empty-state";
+      
+      const emptyIcon = document.createElement("div");
+      emptyIcon.className = "empty-state__icon";
+      emptyDiv.appendChild(emptyIcon);
+      
+      const emptyText = document.createElement("div");
+      emptyText.className = "empty-state__text";
+      emptyText.textContent = "No downloads yet";
+      emptyDiv.appendChild(emptyText);
+      
+      $target.appendChild(emptyDiv);
+      return;
+    }
+    
+    // Process download items
     results.forEach(item => {
-      if (_this.isDangerous(item)) {
-        setTimeout(() => console.log("Dangerous download detected"), 100);
+      if (this.isDangerous(item)) {
+        // Skip unsupported acceptDanger for Firefox
       }
 
       if (item.state === "in_progress" && !item.paused) {
-        _this.startTimer(item.id);
+        this.startTimer(item.id);
       }
 
-      const downloadElement = this.getDownloadViewElement(item);
-      fragment.appendChild(downloadElement);
+      // Create download element and add to container
+      const downloadElement = this.createDownloadElement(item);
+      if (downloadElement) {
+        $target.appendChild(downloadElement);
+      }
     });
-
-    const $target = $("#downloads");
-    $target.textContent = ''; // Clear the current content
-
-    if (fragment.children.length > 0) {
-      $target.appendChild(fragment);
-      if (_this.resultsLength > _this.resultsLimit) {
-        $target.appendChild(Template.buttonShowMore());
-      }
-    } else {
-      const tmplStateEmpty = this.elementFromHtml($("#tmpl__state-empty").innerHTML);
-      $target.appendChild(tmplStateEmpty);
+    
+    // Add "Show more" button if needed
+    if (this.resultsLength > this.resultsLimit) {
+      const showMoreButton = document.createElement("button");
+      showMoreButton.className = "button button--secondary button--block";
+      showMoreButton.setAttribute("data-action", "more");
+      showMoreButton.textContent = "Show more";
+      $target.appendChild(showMoreButton);
     }
   },
-  getDownloadView: function(event) {
-    let buttons = "";
-    let status = "";
-    let progressClass = "";
-    let progressWidth = 0;
-
-    if (event.state === "complete") {
-      status = Format.toByte(Math.max(event.totalBytes, event.bytesReceived));
-      buttons = Template.button("secondary", "show", "Show in folder").outerHTML;
-      if (!event.exists) {
-        status = "Deleted";
-        buttons = Template.button("primary", "retry", "Retry").outerHTML;
-      }
-    } else if (event.state === "interrupted") {
-      if (event.error === "NETWORK_FAILED") {
-        status = "Failed - Network error";
-      } else {
-        status = "Canceled";
-      }
-      buttons = Template.button("primary", "retry", "Retry").outerHTML;
-    } else {
-      if (event.paused) {
-        status = "Paused";
-        progressClass = "paused";
-        buttons = Template.button("primary", "resume", "Resume").outerHTML;
-        buttons += Template.button("secondary", "cancel", "Cancel").outerHTML;
-      } else {
-        status = `${Format.toByte(event.bytesReceived)} of ${Format.toByte(event.totalBytes)} - ${Format.toByte(event.bytesReceived / ((Date.now() - new Date(event.startTime)) / 1000))}/s`;
-        progressClass = "in-progress";
-        buttons = Template.button("primary", "pause", "Pause").outerHTML;
-        buttons += Template.button("secondary", "cancel", "Cancel").outerHTML;
-      }
-      progressWidth = ((100 * event.bytesReceived) / event.totalBytes).toFixed(1) + "%";
-    }
-
-    const canceledClass = event.state === "interrupted" ? "canceled" : "";
-    const removedClass = !event.exists ? "removed" : "";
-    let extraClass = ["download", removedClass, canceledClass, progressClass];
-
-    if (this.isDangerous(event)) {
-      extraClass.push("danger");
-    }
-
-    const fileName = this.getProperFilename(event.filename);
-    const fileUrl = event.finalUrl || event.url; // Ensure fileUrl is set correctly
-
-    const defaultFileIcon = `data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACgAAAAoCAYAAACM/rhtAAACzElEQVRYhe2YT3LaMBTGP3VgmAZqPOlFegA6JCG3yarXYMMqu3TDFF+DK/QGzQ3a6SYbS68LWViS9SRZZrrKNwgL2U/++f2RjYF3T`;
-    if (fileName) {
-      browser.downloads.getFileIcon(event.id, { size: 32 }, iconURL =>
-        iconURL ? ($(`#icon-${event.id}`).src = iconURL) : false
-      );
-    }
-
-    const downloadElement = document.createElement("div");
-    downloadElement.id = `download-${event.id}`;
-    downloadElement.className = `list__item ${extraClass.join(" ").replace(/\s\s+/g, " ").trim()}`;
-    downloadElement.dataset.id = event.id;
-
+  createDownloadElement: function(event) {
+    if (!event) return null;
+    
+    // Create main container
+    const downloadItem = document.createElement("div");
+    downloadItem.id = `download-${event.id}`;
+    downloadItem.setAttribute("data-id", event.id);
+    
+    // Handle file exists check
+    const fileRemoved = event.exists === false;
+    
+    // Set classes
+    downloadItem.className = "list__item download";
+    if (fileRemoved) downloadItem.classList.add("removed");
+    if (event.state === "interrupted") downloadItem.classList.add("canceled");
+    if (event.paused) downloadItem.classList.add("paused");
+    if (this.isDangerous(event)) downloadItem.classList.add("danger");
+    if (event.state === "in_progress" && !event.paused) downloadItem.classList.add("in-progress");
+    
+    // Ensure all required fields are present
+    event.totalBytes = event.totalBytes || 0;
+    event.bytesReceived = event.bytesReceived || 0;
+    event.filename = event.filename || "";
+    event.finalUrl = event.finalUrl || event.url || "";
+    
+    // Create icon section
     const iconDiv = document.createElement("div");
     iconDiv.className = "list__item__icon";
     const iconImg = document.createElement("img");
     iconImg.id = `icon-${event.id}`;
-    iconImg.src = defaultFileIcon;
+    iconImg.src = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACgAAAAoCAYAAACM/rhtAAACzElEQVRYhe2YT3LaMBTGP3VgmAZqPOlFegA6JCG3yarXYMMqu3TDFF+DK/QGzQ3a6SYbS68LWViS9SRZZrrKNwgL2U/++f2RjYF3T";
     iconDiv.appendChild(iconImg);
-    downloadElement.appendChild(iconDiv);
-
+    
+    // Create content section
     const contentDiv = document.createElement("div");
     contentDiv.className = "list__item__content";
-    const filenameElement = document.createElement(event.state != "complete" || !event.exists ? "p" : "a");
-    filenameElement.className = "list__item__filename";
-    filenameElement.title = fileName;
-    filenameElement.textContent = fileName;
-    if (event.state == "complete" && event.exists) {
-      filenameElement.href = `file://${event.filename}`;
-      filenameElement.dataset.action = "open";
+    
+    // Filename handling
+    const fileName = this.getProperFilename(event.filename);
+    const fileUrl = event.finalUrl;
+    
+    if (event.state !== "complete" || fileRemoved) {
+      const fileNameP = document.createElement("p");
+      fileNameP.className = "list__item__filename";
+      fileNameP.title = fileName;
+      fileNameP.textContent = fileName;
+      contentDiv.appendChild(fileNameP);
+    } else {
+      const fileNameA = document.createElement("a");
+      fileNameA.href = `file://${event.filename}`;
+      fileNameA.className = "list__item__filename";
+      fileNameA.setAttribute("data-action", "open");
+      fileNameA.title = fileName;
+      fileNameA.textContent = fileName;
+      contentDiv.appendChild(fileNameA);
     }
-    contentDiv.appendChild(filenameElement);
-
-    const sourceElement = document.createElement("a");
-    sourceElement.className = "list__item__source";
-    sourceElement.dataset.action = "url";
-    sourceElement.href = fileUrl;
-    sourceElement.title = fileUrl;
-    sourceElement.textContent = fileUrl;
-    contentDiv.appendChild(sourceElement);
-
-    if (extraClass.includes("in-progress")) {
+    
+    // Source URL
+    const sourceA = document.createElement("a");
+    sourceA.href = fileUrl;
+    sourceA.className = "list__item__source";
+    sourceA.setAttribute("data-action", "url");
+    sourceA.title = fileUrl;
+    sourceA.textContent = fileUrl;
+    contentDiv.appendChild(sourceA);
+    
+    // Progress bar for active downloads
+    if (event.state === "in_progress" && !event.paused) {
       const progressDiv = document.createElement("div");
       progressDiv.className = "progress";
-      const progressBar = document.createElement("div");
-      progressBar.className = "progress__bar";
-      progressBar.style.width = progressWidth;
-      progressDiv.appendChild(progressBar);
+      
+      const progressBarDiv = document.createElement("div");
+      progressBarDiv.className = "progress__bar";
+      
+      // Calculate progress width
+      let progressWidth = "0%";
+      if (event.totalBytes > 0) {
+        progressWidth = ((100 * event.bytesReceived) / event.totalBytes).toFixed(1) + "%";
+      }
+      progressBarDiv.style.width = progressWidth;
+      
+      progressDiv.appendChild(progressBarDiv);
       contentDiv.appendChild(progressDiv);
     }
-
+    
+    // Controls section
     const controlsDiv = document.createElement("div");
     controlsDiv.className = "list__item__controls";
+    
+    // Buttons
     const buttonsDiv = document.createElement("div");
     buttonsDiv.className = "list__item__buttons";
-
-    // Create buttons directly and append them to buttonsDiv
-    const buttonParser = new DOMParser();
-    const buttonsDoc = buttonParser.parseFromString(`<div>${buttons}</div>`, 'text/html');
-    const buttonsContainer = buttonsDoc.querySelector('div');
-
-    while (buttonsContainer.firstChild) {
-      buttonsDiv.appendChild(buttonsContainer.firstChild);
+    
+    // Determine which buttons to show
+    if (event.state === "complete") {
+      if (fileRemoved) {
+        // Retry button for deleted files
+        const retryButton = document.createElement("button");
+        retryButton.className = "button button--primary";
+        retryButton.setAttribute("data-action", "retry");
+        retryButton.textContent = "Retry";
+        buttonsDiv.appendChild(retryButton);
+      } else {
+        // Show in folder button
+        const showButton = document.createElement("button");
+        showButton.className = "button button--secondary";
+        showButton.setAttribute("data-action", "show");
+        showButton.textContent = "Show in folder";
+        buttonsDiv.appendChild(showButton);
+      }
+    } else if (event.state === "interrupted") {
+      // Retry button for interrupted downloads
+      const retryButton = document.createElement("button");
+      retryButton.className = "button button--primary";
+      retryButton.setAttribute("data-action", "retry");
+      retryButton.textContent = "Retry";
+      buttonsDiv.appendChild(retryButton);
+    } else if (event.paused) {
+      // Resume and cancel buttons for paused downloads
+      const resumeButton = document.createElement("button");
+      resumeButton.className = "button button--primary";
+      resumeButton.setAttribute("data-action", "resume");
+      resumeButton.textContent = "Resume";
+      buttonsDiv.appendChild(resumeButton);
+      
+      const cancelButton = document.createElement("button");
+      cancelButton.className = "button button--secondary";
+      cancelButton.setAttribute("data-action", "cancel");
+      cancelButton.textContent = "Cancel";
+      buttonsDiv.appendChild(cancelButton);
+    } else {
+      // Pause and cancel buttons for active downloads
+      const pauseButton = document.createElement("button");
+      pauseButton.className = "button button--primary";
+      pauseButton.setAttribute("data-action", "pause");
+      pauseButton.textContent = "Pause";
+      buttonsDiv.appendChild(pauseButton);
+      
+      const cancelButton = document.createElement("button");
+      cancelButton.className = "button button--secondary";
+      cancelButton.setAttribute("data-action", "cancel");
+      cancelButton.textContent = "Cancel";
+      buttonsDiv.appendChild(cancelButton);
     }
-
-    controlsDiv.appendChild(buttonsDiv);
-
+    
+    // Status text
     const statusDiv = document.createElement("div");
     statusDiv.className = "list__item__status status";
-    statusDiv.textContent = status;
+    
+    // Determine status text
+    if (event.state === "complete") {
+      if (fileRemoved) {
+        statusDiv.textContent = "Deleted";
+      } else {
+        statusDiv.textContent = Format.toByte(Math.max(event.totalBytes, event.bytesReceived));
+      }
+    } else if (event.state === "interrupted") {
+      statusDiv.textContent = event.error === "NETWORK_FAILED" ? "Failed - Network error" : "Canceled";
+    } else if (event.paused) {
+      statusDiv.textContent = "Paused";
+    } else {
+      statusDiv.textContent = "Downloading...";
+    }
+    
+    controlsDiv.appendChild(buttonsDiv);
     controlsDiv.appendChild(statusDiv);
-
     contentDiv.appendChild(controlsDiv);
-    downloadElement.appendChild(contentDiv);
-
+    
+    // Clear button
     const clearDiv = document.createElement("div");
     clearDiv.className = "list__item__clear";
+    
     const clearButton = document.createElement("button");
     clearButton.className = "button button--icon";
     clearButton.title = "Clear";
-    clearButton.dataset.action = "erase";
+    clearButton.setAttribute("data-action", "erase");
     clearButton.textContent = "×";
+    
     clearDiv.appendChild(clearButton);
-    downloadElement.appendChild(clearDiv);
-
-    return downloadElement;
-  },
-  getDownloadViewElement: function(event) {
-    const div = document.createElement("div");
-    div.appendChild(this.getDownloadView(event));
-    return div.firstChild;
+    
+    // Assemble the download item
+    downloadItem.appendChild(iconDiv);
+    downloadItem.appendChild(contentDiv);
+    downloadItem.appendChild(clearDiv);
+    
+    // Get file icon if available
+    if (fileName) {
+      browser.downloads.getFileIcon(event.id, { size: 32 }).then(iconURL => {
+        if (iconURL) {
+          iconImg.src = iconURL;
+        }
+      }).catch(() => {});
+    }
+    
+    return downloadItem;
   },
   refreshDownloadView: function(id) {
-    browser.downloads.search({ id: id }, results => {
-      const $el = this.getDownloadViewElement(results[0]);
-      const $target = $(`#download-${id}`);
-      $target.replaceWith($el);
-    });
+    browser.downloads.search({ id: id }).then(results => {
+      if (results && results.length > 0) {
+        const newElement = this.createDownloadElement(results[0]);
+        const oldElement = $(`#download-${id}`);
+        if (oldElement && newElement) {
+          oldElement.parentNode.replaceChild(newElement, oldElement);
+        }
+      }
+    }).catch(() => {});
   },
   clearAllDownloadsExceptRunning: function(callback) {
-    browser.downloads.search({}, results => {
-      const running = results.map(item => {
-        if (item.state == "in_progress") return true;
-        browser.downloads.erase({
-          id: item.id
-        });
+    browser.downloads.search({}).then(results => {
+      const running = results.filter(item => item.state === "in_progress");
+      results.forEach(item => {
+        if (item.state !== "in_progress") {
+          browser.downloads.erase({ id: item.id });
+        }
       });
       callback && callback(running);
+    }).catch(error => {
+      if (callback) callback([]);
     });
   },
   handleClick: function(event) {
     const action = event.target.dataset.action;
-
     if (!action) return;
 
     event.preventDefault();
 
-    if (/url/.test(action)) {
+    if (action === "url") {
       this.openUrl(event.target.href);
       return;
     }
 
-    if (/more/.test(action)) {
+    if (action === "more") {
       this.openUrl("about:downloads");
       return;
     }
 
     const $el = event.target.closest(".download");
+    if (!$el) return;
+    
     const id = +$el.dataset.id;
+    if (!id) return;
 
-    if (/resume|cancel|pause/.test(action)) {
-      browser.downloads[action](id);
-      this.refreshDownloadView(id);
-
-      if (/resume/.test(action)) {
-        this.startTimer(id);
-      } else {
-        this.stopTimer(id);
-      }
-    } else if (/retry/.test(action)) {
-      browser.downloads.search({ id: id }, results => {
-        browser.downloads.download({ url: results[0].url }, new_id => {
-          this.startTimer(new_id);
-        });
-      });
-    } else if (/erase/.test(action)) {
-      browser.downloads.search(
-        {
-          limit: this.resultsLimit,
-          filenameRegex: ".+",
-          orderBy: ["-startTime"]
-        },
-        results => {
-          const $list = $el.parentNode;
-          $list.removeChild($el);
-
-          const new_item = results[this.resultsLimit];
-          if (!new_item) return;
-
-          const newEl = this.getDownloadViewElement(new_item);
-          $list.appendChild(newEl);
+    if (["resume", "cancel", "pause"].includes(action)) {
+      browser.downloads[action](id).then(() => {
+        this.refreshDownloadView(id);
+        if (action === "resume") {
+          this.startTimer(id);
+        } else {
+          this.stopTimer(id);
         }
-      );
-      browser.downloads.erase({ id: id }, this.render.bind(this));
-    } else if (/show/.test(action)) {
-      browser.downloads.show(id);
-    } else if (/open/.test(action)) {
-      browser.downloads.open(id);
-      return;
+      }).catch(() => {});
+    } else if (action === "retry") {
+      browser.downloads.search({ id: id }).then(results => {
+        if (results && results.length > 0) {
+          browser.downloads.download({ url: results[0].url }).then(new_id => {
+            this.startTimer(new_id);
+          }).catch(() => {});
+        }
+      }).catch(() => {});
+    } else if (action === "erase") {
+      browser.downloads.erase({ id: id }).then(() => {
+        if ($el && $el.parentNode) {
+          $el.parentNode.removeChild($el);
+          this.render();
+        }
+      }).catch(() => {});
+    } else if (action === "show") {
+      browser.downloads.show(id).catch(() => {
+        this.openUrl("about:downloads");
+      });
+    } else if (action === "open") {
+      browser.downloads.open(id).catch(() => {});
     }
   },
   startTimer: function(id) {
@@ -379,118 +443,94 @@ const App = {
     let progressCurrentValue = 0;
     let progressNextValue = 0;
     let progressRemainingTime = 0;
-    let progressLastFrame = +new Date();
+    let progressLastFrame = Date.now();
 
     const timer = () => {
       const $el = $(`#download-${id}`);
+      if (!$el) return;
+
       const $status = $el.querySelector(".status");
+      if (!$status) return;
 
-      browser.downloads.search({ id: id }, results => {
-        const event = results[0];
-
-        if (!event) {
+      browser.downloads.search({ id: id }).then(results => {
+        if (!results || !results.length) {
           this.stopTimer(id);
-          this.render();
           return;
         }
 
-        if (event.state != "complete") {
+        const event = results[0];
+        
+        if (!event.bytesReceived) event.bytesReceived = 0;
+        if (!event.totalBytes) event.totalBytes = 1;
+
+        if (event.state !== "complete") {
           let speed = 0;
           let left_text = "";
+          
           const remainingBytes = event.totalBytes - event.bytesReceived;
-          const remainingSeconds =
-            (new Date(event.estimatedEndTime) - new Date()) / 1000;
-
-          speed = remainingBytes / remainingSeconds;
+          let remainingSeconds = 0;
+          
+          if (event.estimatedEndTime) {
+            remainingSeconds = Math.max(0, (new Date(event.estimatedEndTime) - new Date()) / 1000);
+            if (remainingSeconds > 0 && remainingBytes > 0) {
+              speed = remainingBytes / remainingSeconds;
+            }
+          }
 
           if (speed) {
             left_text = `, ${Format.toTime(remainingSeconds)} left`;
           }
 
-          if (progressCurrentValue === 0) {
-            if (speed) {
-              progressCurrentValue = event.bytesReceived / event.totalBytes;
-              progressNextValue =
-                (event.bytesReceived + speed) / event.totalBytes;
-              progressLastValue = progressCurrentValue;
-              progressRemainingTime += 1000;
-            }
-          } else {
-            const currentProgress = event.bytesReceived / event.totalBytes;
-            const progressDelta = currentProgress - progressLastValue;
-            progressNextValue = currentProgress + progressDelta;
-            progressLastValue = currentProgress;
-            progressRemainingTime += 1000;
-          }
-
-          $status.textContent = `${Format.toByte(speed)}/s - ${Format.toByte(
-            event.bytesReceived
-          )} of ${Format.toByte(event.totalBytes)}${left_text}`;
-
-          if (event.bytesReceived && event.bytesReceived === event.totalBytes) {
+          if (event.bytesReceived === event.totalBytes) {
             $status.textContent = Format.toByte(event.totalBytes);
+          } else if (speed > 0) {
+            $status.textContent = `${Format.toByte(speed)}/s - ${Format.toByte(event.bytesReceived)} of ${Format.toByte(event.totalBytes)}${left_text}`;
+          } else {
+            $status.textContent = `${Format.toByte(event.bytesReceived)} of ${Format.toByte(event.totalBytes)}`;
+          }
+          
+          const $progress = $el.querySelector(".progress__bar");
+          if ($progress && event.totalBytes > 0) {
+            $progress.style.width = `${Math.min(100, (event.bytesReceived / event.totalBytes * 100)).toFixed(1)}%`;
           }
         } else {
-          $status.textContent = "";
-          clearInterval(this.timers[id]);
+          $status.textContent = Format.toByte(event.totalBytes);
+          this.stopTimer(id);
           this.refreshDownloadView(event.id);
         }
+      }).catch(() => {
+        this.stopTimer(id);
       });
     };
 
     this.timers[id] = setInterval(timer, 1000);
     setTimeout(timer, 1);
-
-    const progressAnimationFrame = () => {
-      const $el = $(`#download-${id}`);
-      if (!$el) return;
-
-      const $progress = $el.querySelector(".progress__bar");
-
-      const now = Date.now();
-      const elapsed = now - progressLastFrame;
-      const remainingProgress = progressNextValue - progressCurrentValue;
-      progressLastFrame = now;
-
-      if (progressRemainingTime > 0 && remainingProgress > 0) {
-        progressCurrentValue += (elapsed / progressRemainingTime) * remainingProgress;
-        progressRemainingTime -= elapsed;
-
-        if ($progress) {
-          $progress.style.width = (100 * progressCurrentValue).toFixed(1) + "%";
-        }
-      }
-
-      if (this.timers[id]) {
-        requestAnimationFrame(progressAnimationFrame);
-      }
-    };
-
-    requestAnimationFrame(progressAnimationFrame);
   },
   stopTimer: function(id) {
     clearInterval(this.timers[id]);
     this.timers[id] = null;
   },
   elementFromHtml: function(html) {
-    const parser = new DOMParser();
-    const doc = parser.parseFromString(html, 'text/html');
-    return doc.body.firstChild;
+    const $el = document.createElement("div");
+    $el.textContent = html; // Changed from innerHTML for safety
+    return $el.firstChild;
   },
   getProperFilename: function(filename) {
+    if (!filename) return "Unknown";
+    
     const backArray = filename.split("\\");
     const forwardArray = filename.split("/");
     const array = backArray.length > forwardArray.length ? backArray : forwardArray;
     return array.pop().replace(/.crdownload$/, "");
   },
   isDangerous: function(event) {
-    return !/safe|accepted/.test(event.danger) && event.state === "in_progress";
+    return event && event.danger && !/safe|accepted/.test(event.danger) && event.state === "in_progress";
   },
   openUrl: function(url) {
     browser.tabs.create({
       url: url,
       active: true
-    });
+    }).catch(() => {});
   }
 };
 

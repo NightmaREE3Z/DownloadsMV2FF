@@ -1,97 +1,92 @@
-// Keep state for the last clicked position
-let lastX = 0;
-let lastY = 0;
+// Keep state for last clicked place.
+// May become the starting position for gizmo.
+let x = 0;
+let y = 0;
 
-// When message is received
-browser.runtime.onMessage.addListener(message => {
-  if (message === "show_gizmo") showGizmo();
-  if (message === "invalidate_gizmo") {
-    lastX = 0;
-    lastY = 0;
+// When message is received.
+browser.runtime.onMessage.addListener((message) => {
+  if (message === 'show_gizmo') showGizmo();
+
+  if (message === 'invalidate_gizmo') {
+    x = 0;
+    y = 0;
   }
+  
+  // Firefox requires a Promise return value for future compatibility
+  return Promise.resolve();
 });
 
-// Detect download click position
-document.addEventListener('mousedown', handleMouseEvent);
-document.addEventListener('contextmenu', handleMouseEvent);
-
-function handleMouseEvent(event) {
+// Detect download click position.
+document.onmousedown = document.oncontextmenu = (event) => {
   if (isDownloadable(event.target)) {
-    lastX = event.clientX;
-    lastY = event.clientY;
+    x = event.clientX;
+    y = event.clientY;
   }
-}
+};
 
 /**
  * Show gizmo
  */
 function showGizmo() {
-  if (!lastX || !lastY) return;
+  if (!x && !y) return;
 
-  const gizmo = document.createElement("img");
-  gizmo.src = browser.runtime.getURL("icons/iconblue.png");
-  gizmo.style.cssText = "width:48px;height:48px;position:fixed;opacity:1;z-index:999999;";
-  gizmo.style.left = `${lastX - 24}px`;
-  gizmo.style.top = `${lastY - 48}px`;
-  document.body.appendChild(gizmo);
+  const $img = document.createElement('img');
+  $img.src = browser.runtime.getURL('img/icons/icon-48x48.png');
+  $img.style.cssText = 'width:48px;height:48px;position:fixed;opacity:1;z-index:999999;';
+  $img.style.left = x - 24 + 'px';
+  $img.style.top = y - 48 + 'px';
+  document.body.appendChild($img);
 
   setTimeout(() => {
-    const duration = calcDuration(distance(lastX - 48, lastY - 48, window.innerWidth - 48, -48));
-    gizmo.style.transition = `all ${duration}s`;
-    gizmo.style.left = `${window.innerWidth - 60}px`;
-    gizmo.style.top = `-48px`;
-    gizmo.style.opacity = 0.5;
-    gizmo.style.width = "32px";
-    gizmo.style.height = "32px";
-
-    setTimeout(() => {
-      document.body.removeChild(gizmo);
-    }, duration * 1000 + 200);
+    const duration = calcDuration(distance(x - 48, y - 48, window.innerWidth - 48, -48));
+    $img.style.transition = 'all ' + duration + 's'; // Firefox standard property (no webkit prefix needed)
+    $img.style.left = window.innerWidth - 60 + 'px';
+    $img.style.top = -48 + 'px';
+    $img.style.opacity = 0.5;
+    $img.style.width = 32 + 'px';
+    $img.style.height = 32 + 'px';
+    setTimeout(() => document.body.removeChild($img), duration * 1000 + 200);
   }, 100);
 }
 
 /**
- * Get the distance
- * @param {number} x1
- * @param {number} y1
- * @param {number} x2
- * @param {number} y2
- * @returns {number} Distance between two points
+ * Get the distance.
+ * @param {*} x1
+ * @param {*} y1
+ * @param {*} x2
+ * @param {*} y2
  */
 function distance(x1, y1, x2, y2) {
-  return Math.sqrt(Math.pow(x1 - x2, 2) + Math.pow(y1 - y2, 2));
+  return Math.sqrt((x1 - x2) * (x1 - x2) + (y1 - y2) * (y1 - y2));
 }
 
 /**
- * Calculate the duration
- * @param {number} distance
- * @param {number} speed
- * @returns {number} Duration in seconds
+ * Calculate the duration.
+ * @param {*} distance
+ * @param {*} speed
  */
-function calcDuration(distance, speed = 800) {
-  return distance / speed; // speed in px/sec
+function calcDuration(distance, speed) {
+  speed = speed || 800; // px/sec
+  return distance / speed;
 }
 
 /**
- * Check if element is downloadable
- * @param {Element} el
- * @returns {boolean} True if element is downloadable
+ * Check if element is downloadable.
+ * @param {*} el
  */
 function isDownloadable(el) {
-  return el.nodeName === "IMG" || isLinkOrDescendantOfLink(el);
+  return el.nodeName === 'IMG' || isLinkOrDescendantOfLink(el);
 }
 
 /**
- * Check if element is a link
- * @param {Element} el
- * @returns {boolean} True if element or its descendant is a link
+ * Check if element is a link.
+ * @param {*} el
  */
 function isLinkOrDescendantOfLink(el) {
-  while (el) {
-    if (el.nodeName === "A" && el.href) {
+  do {
+    if (el.nodeName === 'A' && el.href) {
       return true;
     }
-    el = el.parentNode;
-  }
+  } while ((el = el.parentNode));
   return false;
 }
