@@ -1,0 +1,12 @@
+{
+  "downloads_title": { "message": "Lataukset" },
+  "show_all": { "message": "Näytä kaikki" },
+  "clear_all": { "message": "Tyhjennä kaikki" },
+  "files_appear": { "message": "Lataamasi tiedostot näkyvät täällä" },
+  "pause": { "message": "Tauko" },
+  "cancel": { "message": "Peruuta" },
+  "resume": { "message": "Jatka" },
+  "retry": { "message": "Yritä uudelleen" },
+  "cancelled": { "message": "Peruutettu" },
+  "show_in_folder": { "message": "Näytä kansiossa" }
+}

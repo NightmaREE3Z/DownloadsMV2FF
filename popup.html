@@ -1,51 +1,44 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1.0, user-scalable=no">
-  <meta name="description" content="A clean and modern download manager to handle your downloads effectively.">
+  <meta name="viewport" content="width=420,initial-scale=1">
   <title>Downloads</title>
   <link rel="shortcut icon" type="image/png" href="icons/iconblue.png">
   <link rel="stylesheet" type="text/css" href="css/main.css">
 </head>
-
 <body>
-  <nav class="toolbar" role="navigation">
-    <h3 class="toolbar__title" aria-label="Download Manager">Downloads</h3>
-    <div class="toolbar__buttons">
-      <button id="action-show-all" class="button button--secondary" aria-label="Show all downloads">Show all</button>
-      <button id="action-clear-all" class="button button--secondary" aria-label="Clear all downloads">Clear all</button>
+  <nav class="toolbar">
+    <select id="language-switch">
+      <option value="en">🇬🇧 English</option>
+      <option value="fi">🇫🇮 Suomi</option>
+    </select>
+    <div class="toolbar__title"></div>
+    <div class="toolbar__action-row">
+      <button id="action-show-all" class="button button--secondary"></button>
+      <button id="action-clear-all" class="button button--secondary"></button>
     </div>
   </nav>
 
-  <main id="main" role="main">
-    <section id="downloads" class="list" aria-live="polite" aria-relevant="additions removals">
-      <!-- List of Downloads will go here -->
-    </section>
+  <main id="main">
+    <section id="downloads" class="list"></section>
   </main>
 
-  <!-- Empty State Template -->
   <template id="tmpl__state-empty">
     <div class="state">
       <div class="state__content">
-        <svg class="state__icon" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 570 571.34" role="img" aria-labelledby="emptyIconTitle">
-          <title id="emptyIconTitle">Empty Downloads Icon</title>
-          <path fill="var(--icon-path-1-color)"
-            d="M426.6 135.25H190.98c-14.05 0-25.43 11.39-25.43 25.43v333.87c0 14.05 11.39 25.43 25.43 25.43h235.64c14.05 0 25.43-11.39 25.43-25.43V160.7c0-14.06-11.39-25.45-25.45-25.45z" />
-          <path fill="var(--icon-path-2-color)"
-            d="M356.78 435.6H121.14c-14.05 0-25.43-11.39-25.43-25.43V76.3c0-14.05 11.39-25.43 25.43-25.43h176.69l84.38 84.38v274.92c.01 14.04-11.38 25.43-25.43 25.43z" />
-          <path fill="var(--icon-path-4-color)"
-            d="M382.22 135.25h-58.93c-14.05 0-25.45-11.39-25.45-25.45V50.87l84.38 84.38z" />
-          <path d="M169.13 237.7H308.8m-139.67 31.64H308.8m-139.67 31.64H308.8m-139.67 31.63h84.64" fill="none"
-            stroke="var(--icon-path-3-color)" stroke-width="11" stroke-linecap="round" stroke-miterlimit="10" />
+        <svg class="state__icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 570 571.34">
+          <path fill="var(--icon-path-1-color)" d="M426.6 135.25H190.98c-14.05 0-25.43 11.39-25.43 25.43v333.87c0 14.05 11.39 25.43 25.43 25.43h235.64c14.05 0 25.43-11.39 25.43-25.43V160.7c0-14.06-11.39-25.45-25.45-25.45z"/>
+          <path fill="var(--icon-path-2-color)" d="M356.78 435.6H121.14c-14.05 0-25.43-11.39-25.43-25.43V76.3c0-14.05 11.39-25.43 25.43-25.43h176.69l84.38 84.38v274.92c.01 14.04-11.38 25.43-25.43 25.43z"/>
+          <path fill="var(--icon-path-4-color)" d="M382.22 135.25h-58.93c-14.05 0-25.45-11.39-25.45-25.45V50.87l84.38 84.38z"/>
+          <path d="M169.13 237.7H308.8m-139.67 31.64H308.8m-139.67 31.64H308.8m-139.67 31.63h84.64" fill="none" stroke="var(--icon-path-3-color)" stroke-width="11" stroke-linecap="round" stroke-miterlimit="10"/>
         </svg>
-        <p class="state__title">Files you download appear here</p>
+        <div class="state__title" id="files-appear"></div>
       </div>
     </div>
   </template>
 
+  <script type="text/javascript" src="js/localize.js"></script>
   <script type="text/javascript" src="js/main.js"></script>
 </body>
-
 </html>

@@ -12,7 +12,7 @@ A simple, yet effective download manager extension for your browser, built using
 
 ### Installation:
 
-1. **Install from** **[Firefox Add-ons](https://addons.mozilla.org/en-US/firefox/addon/mv2-download-manager/)** **once it gets approved there.**
+1. **Install from** **[Firefox Add-ons](https://addons.mozilla.org/fi/firefox/addon/mv2-download-manager/)**
    
 2. **Install from GitHub (manual):**
    - Clone this repository and load it as an unpacked extension:
@@ -27,10 +27,14 @@ Once installed, the extension will automatically start managing your downloads. 
 - **Yellow**: Download is in progress.
 - **Green**: Download is complete.
 
+### Changelog
+- Version 5.1 on May 11th 2025. This version introduces dark mode support and working download progress bar. With UI changes to match Google Chrome's version.
+
 ### Acknowledgments:
 This extension is based on the original **Downloads Pro** extension by **Ner Karso** for Google Chrome, which uses a progress bar to track download status. Modifications have been made to implement a different download tracking system using color-coded icons.
 
 - The original extension can be found here: [Downloads Pro on Chrome Web Store](https://chromewebstore.google.com/detail/downloads-pro/lhhocifdmhogpekeppdjamkelohahbop).
+- Google Chrome version of MV2 Downloader can be found here: [MV3 Download Manager on Chrome Web Store](https://chromewebstore.google.com/detail/mv3-download-manager/oepjjkighhnkonjobaabpajgeijhngan).
 
 ### License:
 The modifications made in this version are open-sourced under the **MIT License**.

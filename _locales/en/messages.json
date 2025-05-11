@@ -1,0 +1,12 @@
+{
+  "downloads_title": { "message": "Downloads" },
+  "show_all": { "message": "Show all" },
+  "clear_all": { "message": "Clear all" },
+  "files_appear": { "message": "Files you download appear here" },
+  "pause": { "message": "Pause" },
+  "cancel": { "message": "Cancel" },
+  "resume": { "message": "Resume" },
+  "retry": { "message": "Retry" },
+  "cancelled": { "message": "Cancelled" },
+  "show_in_folder": { "message": "Show in folder" }
+}
