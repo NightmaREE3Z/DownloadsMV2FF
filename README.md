@@ -28,7 +28,7 @@ Once installed, the extension will automatically start managing your downloads. 
 - **Green**: Download is complete.
 
 ### Changelog
-- Version 5.1 on May 11th 2025. This version introduces dark mode support and working download progress bar. With UI changes to match Google Chrome's version.
+- Version 5.2 on May 11th 2025. This version introduces dark mode support and working download progress bar. With UI changes to match Google Chrome's version.
 
 ### Acknowledgments:
 This extension is based on the original **Downloads Pro** extension by **Ner Karso** for Google Chrome, which uses a progress bar to track download status. Modifications have been made to implement a different download tracking system using color-coded icons.

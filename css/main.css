@@ -2,10 +2,9 @@
   --popup-height: 506px;
   --popup-width: 420px;
   --toolbar-height: 138px;
-
-  /* Light mode defaults */
   --primary-color: #0b57d0;
   --primary-rgb-color: 11, 87, 208;
+  --primary-darker-color: #084399;
   --background-color: #ffffff;
   --background-darker-color: #f2f2f2;
   --background-lighter-color: #ebeff8;
@@ -22,6 +21,7 @@
   :root {
     --primary-color: #8ab4f8;
     --primary-rgb-color: 138, 180, 248;
+    --primary-darker-color: #3584e4;
     --background-color: #292a2d;
     --background-darker-color: #202123;
     --background-lighter-color: #303236;
@@ -220,6 +220,7 @@ body {
   box-sizing: border-box;
   width: 100%;
   max-width: 100%;
+  position: relative;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -259,7 +260,6 @@ body {
   font-weight: 400;
   margin: 0 0 3px;
   font-size: 0.9em;
-  /* Remove strikethrough, always readable! */
   text-decoration: none !important;
   opacity: 1 !important;
 }
@@ -289,7 +289,6 @@ body {
   text-decoration: underline;
 }
 
-/* --- CANCELED ROW LAYOUT --- */
 .list__item__row {
   display: flex;
   align-items: center;
@@ -360,7 +359,6 @@ body {
   opacity: 0.5;
 }
 
-/* No strikethrough for any download state */
 .canceled .list__item__filename,
 .removed .list__item__filename {
   opacity: 0.5;
@@ -417,4 +415,86 @@ body {
 ::-webkit-scrollbar-thumb {
   background: #e0e7ef;
   border-radius: 6px;
+}
+
+/* --- Tinier X, Chrome tab style, very minimal --- */
+.tiny-x-wrap {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 13px;
+  height: 13px;
+  pointer-events: auto;
+}
+
+.tiny-x {
+  background: none;
+  border: none;
+  color: #222;
+  padding: 0;
+  margin: 0;
+  width: 13px;
+  height: 13px;
+  min-width: 13px;
+  min-height: 13px;
+  max-width: 13px;
+  max-height: 13px;
+  cursor: pointer;
+  opacity: 0.78;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: opacity 0.12s;
+  box-shadow: none;
+  outline: none;
+  border-radius: 0;
+}
+
+.tiny-x:hover,
+.tiny-x:focus {
+  background: none;
+  color: #222;
+  opacity: 1;
+  outline: none;
+  box-shadow: none;
+}
+
+.tiny-x:active {
+  background: none;
+  color: #222;
+  opacity: 0.92;
+}
+
+.tiny-x svg {
+  width: 11px;
+  height: 11px;
+  stroke: currentColor;
+  stroke-width: 2;
+  pointer-events: none;
+  display: block;
+}
+
+.download:not(.complete):not(.canceled) .tiny-x-wrap {
+  display: none !important;
+}
+.download.complete .tiny-x-wrap,
+.download.canceled .tiny-x-wrap {
+  display: flex !important;
+}
+
+@media (prefers-color-scheme: dark) {
+  .tiny-x {
+    color: #fff;
+  }
+  .tiny-x:hover,
+  .tiny-x:focus,
+  .tiny-x:active {
+    color: #fff;
+    background: none;
+    opacity: 1;
+  }
 }

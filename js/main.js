@@ -1,5 +1,3 @@
-// main.js: fixes for icon always showing, no strikethrough, download URL always shown
-
 const ext = typeof browser !== "undefined" ? browser : chrome;
 
 window.$ = typeof document !== "undefined" && document.querySelector
@@ -32,15 +30,47 @@ const Format = {
 
 const Template = {
   button(type, action, text) {
-    return `<button class="button button--${type}" data-action="${action}">${text || ""}</button>`;
+    const btn = document.createElement("button");
+    btn.className = `button button--${type}`;
+    btn.setAttribute("data-action", action);
+    btn.textContent = text || "";
+    return btn;
   },
   buttonShowMore() {
-    return `<button class="button button--secondary button--block" data-action="more">${t("show_more") || "Show more"}</button>`;
+    const btn = document.createElement("button");
+    btn.className = "button button--secondary button--block";
+    btn.setAttribute("data-action", "more");
+    btn.textContent = t("show_more") || "Show more";
+    return btn;
+  },
+  tinyXButton() {
+    // Just a minimal, tiny X (chrome tab size)
+    const btn = document.createElement("button");
+    btn.className = "tiny-x";
+    btn.setAttribute("data-action", "erase");
+    btn.setAttribute("title", t("remove") || "Remove");
+    btn.setAttribute("aria-label", t("remove") || "Remove");
+    btn.type = "button";
+    // SVG: black X, 11x11, square caps, no fill, stroke only
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("width", "11");
+    svg.setAttribute("height", "11");
+    svg.setAttribute("viewBox", "0 0 11 11");
+    const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    path.setAttribute("d", "M2 2L9 9M9 2L2 9");
+    path.setAttribute("stroke", "currentColor");
+    path.setAttribute("stroke-width", "2");
+    path.setAttribute("stroke-linecap", "square");
+    path.setAttribute("fill", "none");
+    svg.appendChild(path);
+    btn.appendChild(svg);
+    return btn;
   }
 };
 
 let popupReady = false;
 const iconCache = {};
+const progressTimers = {};
 
 const App = {
   timers: {},
@@ -53,7 +83,7 @@ const App = {
   renderPending: false,
   pollInterval: null,
   prevDownloadIds: [],
-  prevHtmlMap: {},
+  prevNodeMap: {},
   lastRetried: null,
 
   init() {
@@ -78,11 +108,38 @@ const App = {
       ext.runtime.sendMessage('popup_closed');
       Object.values(this.timers).forEach(clearInterval);
       this.timers = {};
+      Object.values(progressTimers).forEach(clearInterval);
       if (this.pollInterval) clearInterval(this.pollInterval);
     });
   },
 
   bindEvents() {
+    $("#downloads")?.addEventListener("mousedown", (event) => {
+      let btn = event.target.closest("button[data-action],.tiny-x");
+      if (btn) {
+        this.handleClick(event, btn);
+        event.preventDefault();
+        return;
+      }
+      let downloadRow = event.target.closest(".download");
+      if (!downloadRow) return;
+      if (event.target.classList.contains("list__item__filename")) {
+        this.handleClick({ ...event, target: downloadRow }, { dataset: { action: "open" } });
+      }
+      if (event.target.classList.contains("list__item__source")) {
+        this.handleClick({ ...event, target: event.target }, { dataset: { action: "url" } });
+      }
+    });
+    $("#downloads")?.addEventListener("keydown", (event) => {
+      if (
+        (event.key === "Enter" || event.key === " ") &&
+        event.target.classList.contains("tiny-x")
+      ) {
+        this.handleClick(event, event.target);
+        event.preventDefault();
+      }
+    });
+
     ext.runtime.onMessage.addListener((message, sender, sendResponse) => {
       if (!popupReady) return;
       if (message.type === "download_created" || message.type === "download_changed") {
@@ -104,15 +161,21 @@ const App = {
           this.render();
         } else {
           const emptyTmpl = $("#tmpl__state-empty");
-          if (emptyTmpl) $("#downloads").innerHTML = emptyTmpl.innerHTML;
+          const downloadsEl = $("#downloads");
+          downloadsEl.textContent = "";
+          if (emptyTmpl) {
+            if (emptyTmpl.content) {
+              downloadsEl.appendChild(emptyTmpl.content.cloneNode(true));
+            } else {
+              downloadsEl.appendChild(emptyTmpl.cloneNode(true));
+            }
+          }
           if (emptyTmpl && typeof localize === "function") {
             localize();
           }
         }
       });
     });
-
-    $("#downloads")?.on("click", this.handleClick.bind(this));
   },
 
   scheduleRender() {
@@ -157,225 +220,285 @@ const App = {
   updateDownloadsView(results) {
     const downloadsEl = $("#downloads");
     const emptyTmpl = $("#tmpl__state-empty");
+    while (downloadsEl.firstChild) {
+      downloadsEl.removeChild(downloadsEl.firstChild);
+    }
+
+    Object.values(progressTimers).forEach(clearInterval);
+    Object.keys(progressTimers).forEach(k => delete progressTimers[k]);
+
     if (!results || results.length === 0) {
-      downloadsEl.innerHTML = emptyTmpl ? emptyTmpl.innerHTML : "";
+      if (emptyTmpl) {
+        if (emptyTmpl.content) {
+          downloadsEl.appendChild(emptyTmpl.content.cloneNode(true));
+        } else {
+          downloadsEl.appendChild(emptyTmpl.cloneNode(true));
+        }
+      }
       if (emptyTmpl && typeof localize === "function") {
         localize();
       }
       this.prevDownloadIds = [];
-      this.prevHtmlMap = {};
+      this.prevNodeMap = {};
       return;
     }
     const ids = results.map(item => item.id);
-    let htmlMap = {};
+    let nodeMap = {};
 
-    results.forEach((item, idx) => {
+    results.forEach((item) => {
       if (!item) return;
-      let node = $(`#download-${item.id}`);
-      let newHtml = this.getDownloadView(item);
-
-      if (!node) {
-        const el = document.createElement("div");
-        el.innerHTML = newHtml;
-        let prevNode = null;
-        for (let i = idx - 1; i >= 0; --i) {
-          let prev = $(`#download-${results[i].id}`);
-          if (prev) {
-            prevNode = prev;
-            break;
-          }
-        }
-        if (prevNode && prevNode.nextSibling) {
-          downloadsEl.insertBefore(el.firstChild, prevNode.nextSibling);
-        } else if (prevNode) {
-          downloadsEl.appendChild(el.firstChild);
-        } else if (downloadsEl.firstChild) {
-          downloadsEl.insertBefore(el.firstChild, downloadsEl.firstChild);
-        } else {
-          downloadsEl.appendChild(el.firstChild);
-        }
-      } else if (this.prevHtmlMap[item.id] !== newHtml) {
-        const el = document.createElement("div");
-        el.innerHTML = newHtml;
-        node.replaceWith(el.firstChild);
+      let node = this.buildDownloadNode(item);
+      downloadsEl.appendChild(node);
+      nodeMap[item.id] = node;
+      if (item.state === "in_progress" || item.paused) {
+        this.startProgressInfoTimer(node, item.id);
       }
-      htmlMap[item.id] = newHtml;
     });
 
-    if (this.prevDownloadIds.length) {
-      this.prevDownloadIds.forEach(oldId => {
-        if (!ids.includes(oldId)) {
-          const oldNode = $(`#download-${oldId}`);
-          if (oldNode) downloadsEl.removeChild(oldNode);
-        }
-      });
+    if (this.resultsLength > this.resultsLimit) {
+      downloadsEl.appendChild(Template.buttonShowMore());
     }
-
-    if (!downloadsEl.hasChildNodes() || downloadsEl.childElementCount === 0) {
-      let html = "";
-      results.forEach(item => {
-        if (!item) return;
-        html += htmlMap[item.id];
-      });
-      downloadsEl.innerHTML = html;
-    }
-
-    if (this.resultsLength > this.resultsLimit && !$("#downloads .button--block")) {
-      downloadsEl.insertAdjacentHTML("beforeend", Template.buttonShowMore());
-    }
-
-    results.forEach(item => {
-      if (!item) return;
-      const $el = $(`#download-${item.id}`);
-      if (!$el) return;
-
-      const $progress = $el.querySelector(".progress__bar");
-      if ($progress) {
-        let progressWidth = "0%";
-        if (item.totalBytes > 0) {
-          progressWidth = ((100 * item.bytesReceived) / item.totalBytes).toFixed(1) + "%";
-        }
-        $progress.style.width = progressWidth;
-      }
-
-      const $status = $el.querySelector(".status");
-      if ($status && item.state === "in_progress") {
-        let speed = 0;
-        let left_text = "";
-        const remainingBytes = item.totalBytes - item.bytesReceived;
-        let remainingSeconds = 0;
-        if (item.estimatedEndTime) {
-          remainingSeconds = (new Date(item.estimatedEndTime) - new Date()) / 1000;
-        }
-        if (remainingSeconds > 0) {
-          speed = remainingBytes / remainingSeconds;
-        }
-        if (speed) {
-          left_text = `, ${Format.toTime(remainingSeconds)} ${t("left") || ""}`;
-        }
-        $status.textContent = `${Format.toByte(speed)}/s - ${Format.toByte(item.bytesReceived)} of ${Format.toByte(item.totalBytes)}${left_text}`;
-        if (item.bytesReceived && item.bytesReceived === item.totalBytes) {
-          $status.textContent = Format.toByte(item.totalBytes);
-        }
-      }
-
-      // Icon handling - always show icon, also during download
-      const $icon = $el.querySelector(`#icon-${item.id}`);
-      if ($icon) {
-        if (!iconCache[item.id]) iconCache[item.id] = "";
-        if (ext.downloads.getFileIcon) {
-          ext.downloads.getFileIcon(item.id, { size: 32 }, (iconURL) => {
-            if (iconURL && $icon.src !== iconURL) {
-              iconCache[item.id] = iconURL;
-              $icon.src = iconURL;
-            }
-          });
-        }
-      }
-
-      // URL handling - always show url if present
-      const $url = $el.querySelector(".list__item__source");
-      if ($url) {
-        let shownUrl = item.finalUrl || item.url || "";
-        $url.textContent = shownUrl;
-        $url.setAttribute("href", shownUrl || "#");
-        $url.setAttribute("title", shownUrl);
-        $url.style.display = shownUrl ? "" : "none";
-      }
-    });
 
     this.prevDownloadIds = ids;
-    this.prevHtmlMap = htmlMap;
+    this.prevNodeMap = nodeMap;
   },
 
-  getDownloadView(event) {
-    let buttons = "";
-    let status = "";
-    let progressClass = "";
-    let progressWidth = "0%";
-    if (!event) return "";
-
+  buildDownloadNode(event) {
     const fileName = this.getProperFilename(event.filename) || "";
     const fileUrl = event.finalUrl || event.url || "";
     const exists = event.exists !== false;
 
+    const div = document.createElement("div");
+    div.className = "list__item download";
+    if (!exists) div.classList.add("removed");
+    if (event.state === "interrupted") div.classList.add("canceled");
+    if (event.state === "complete") div.classList.add("complete");
+    if (event.paused) div.classList.add("paused");
+    if (event.state === "in_progress") div.classList.add("in-progress");
+    if (this.isDangerous(event)) div.classList.add("danger");
+    div.setAttribute("data-id", event.id);
+    div.id = `download-${event.id}`;
+
+    // Icon
+    const iconDiv = document.createElement("div");
+    iconDiv.className = "list__item__icon";
+    const iconImg = document.createElement("img");
+    iconImg.id = `icon-${event.id}`;
+    iconImg.setAttribute("data-default", "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACgAAAAoCAYAAACM/rhtAAACzElEQVRYhe2YT3LaMBTGP3VgmAZqPOlFegA6JCG3yarXYMMqu3TDFF+DK/QGzQ3a6SYbS68LWViS9SRZZrrKNwgL2U/++f2RjYF3T");
+    iconImg.src = iconCache[event.id] || iconImg.getAttribute("data-default");
+    iconImg.width = 24;
+    iconImg.height = 24;
+    iconDiv.appendChild(iconImg);
+
+    // Content
+    const contentDiv = document.createElement("div");
+    contentDiv.className = "list__item__content";
+
+    // Filename
+    const filenameP = document.createElement("p");
+    filenameP.className = "list__item__filename";
+    filenameP.title = fileName;
+    filenameP.setAttribute("data-action", "open");
+    filenameP.textContent = fileName;
+    contentDiv.appendChild(filenameP);
+
+    // URL
+    const urlA = document.createElement("a");
+    urlA.className = "list__item__source";
+    urlA.setAttribute("data-action", "url");
+    urlA.title = fileUrl;
+    urlA.href = fileUrl || "#";
+    urlA.textContent = fileUrl || "";
+    urlA.style.display = fileUrl ? "" : "none";
+    contentDiv.appendChild(urlA);
+
+    // Progress bar (in-progress only)
+    let isInProgress = (event.state === "in_progress" || event.paused);
+    if (isInProgress) {
+      const progressDiv = document.createElement("div");
+      progressDiv.className = "progress";
+      const progressBar = document.createElement("div");
+      progressBar.className = "progress__bar";
+      let progressWidth = "0%";
+      if (event.totalBytes > 0) {
+        progressWidth = ((100 * event.bytesReceived) / event.totalBytes).toFixed(1) + "%";
+      }
+      progressBar.style.width = progressWidth;
+      progressDiv.appendChild(progressBar);
+      contentDiv.appendChild(progressDiv);
+    }
+
+    // Progress info (speed, MB, left)
+    let progressInfoDiv = null;
+    if (isInProgress) {
+      progressInfoDiv = document.createElement("div");
+      progressInfoDiv.className = "list__item__progressinfo";
+      progressInfoDiv.textContent = this.getProgressInfoText(event);
+      contentDiv.appendChild(progressInfoDiv);
+    }
+
+    // Controls/status
+    const controlsDiv = document.createElement("div");
+    controlsDiv.className = "list__item__controls";
+    const buttonsDiv = document.createElement("div");
+    buttonsDiv.className = "list__item__buttons";
+    const statusDiv = document.createElement("div");
+    statusDiv.className = "list__item__status status";
+
+    // Buttons for state
     if (event.state === "complete") {
-      status = Format.toByte(Math.max(event.totalBytes, event.bytesReceived));
-      buttons = Template.button("secondary", "show", t("show_in_folder") || "Show in folder");
-      return `<div id="download-${event.id}" class="list__item download${!exists ? " removed" : ""}" data-id="${event.id}">
-        <div class="list__item__icon">
-          <img id="icon-${event.id}" data-default="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACgAAAAoCAYAAACM/rhtAAACzElEQVRYhe2YT3LaMBTGP3VgmAZqPOlFegA6JCG3yarXYMMqu3TDFF+DK/QGzQ3a6SYbS68LWViS9SRZZrrKNwgL2U/++f2RjYF3T" src="${iconCache[event.id] || 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACgAAAAoCAYAAACM/rhtAAACzElEQVRYhe2YT3LaMBTGP3VgmAZqPOlFegA6JCG3yarXYMMqu3TDFF+DK/QGzQ3a6SYbS68LWViS9SRZZrrKNwgL2U/++f2RjYF3T'}">
-        </div>
-        <div class="list__item__content">
-          <p class="list__item__filename" title="${fileName}" data-action="open">${fileName}</p>
-          <a href="${fileUrl || "#"}" class="list__item__source" data-action="url" title="${fileUrl}">${fileUrl || ""}</a>
-          <div class="list__item__row">
-            ${buttons}
-            <span class="list__item__canceled">${status}</span>
-          </div>
-        </div>
-      </div>`;
+      buttonsDiv.appendChild(Template.button("secondary", "show", t("show_in_folder") || "Show in folder"));
+      controlsDiv.appendChild(buttonsDiv);
+
+      const canceledSpan = document.createElement("span");
+      canceledSpan.className = "list__item__canceled";
+      canceledSpan.textContent = Format.toByte(Math.max(event.totalBytes, event.bytesReceived));
+      controlsDiv.appendChild(canceledSpan);
+
+      controlsDiv.appendChild(statusDiv);
+    } else if (event.state === "interrupted") {
+      buttonsDiv.appendChild(Template.button("primary", "retry", t("retry") || "Retry"));
+      controlsDiv.appendChild(buttonsDiv);
+
+      const canceledSpan = document.createElement("span");
+      canceledSpan.className = "list__item__canceled";
+      canceledSpan.textContent = event.error === "NETWORK_FAILED"
+        ? (t("failed_network") || "Failed - Network error")
+        : (t("canceled") || "Canceled");
+      controlsDiv.appendChild(canceledSpan);
+
+      controlsDiv.appendChild(statusDiv);
+    } else if (event.paused) {
+      buttonsDiv.appendChild(Template.button("primary", "resume", t("resume") || "Resume"));
+      buttonsDiv.appendChild(Template.button("secondary", "cancel", t("cancel") || "Cancel"));
+      controlsDiv.appendChild(buttonsDiv);
+      controlsDiv.appendChild(statusDiv);
+    } else if (event.state === "in_progress") {
+      buttonsDiv.appendChild(Template.button("primary", "pause", t("pause") || "Pause"));
+      buttonsDiv.appendChild(Template.button("secondary", "cancel", t("cancel") || "Cancel"));
+      controlsDiv.appendChild(buttonsDiv);
+      controlsDiv.appendChild(statusDiv);
     }
 
-    if (event.state === "interrupted") {
-      status = event.error === "NETWORK_FAILED" ? (t("failed_network") || "Failed - Network error") : (t("canceled") || "Canceled");
-      buttons = Template.button("primary", "retry", t("retry") || "Retry");
-      return `<div id="download-${event.id}" class="list__item download canceled" data-id="${event.id}">
-        <div class="list__item__icon">
-          <img id="icon-${event.id}" data-default="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACgAAAAoCAYAAACM/rhtAAACzElEQVRYhe2YT3LaMBTGP3VgmAZqPOlFegA6JCG3yarXYMMqu3TDFF+DK/QGzQ3a6SYbS68LWViS9SRZZrrKNwgL2U/++f2RjYF3T" src="${iconCache[event.id] || 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACgAAAAoCAYAAACM/rhtAAACzElEQVRYhe2YT3LaMBTGP3VgmAZqPOlFegA6JCG3yarXYMMqu3TDFF+DK/QGzQ3a6SYbS68LWViS9SRZZrrKNwgL2U/++f2RjYF3T'}">
-        </div>
-        <div class="list__item__content">
-          <p class="list__item__filename" title="${fileName}" data-action="open">${fileName}</p>
-          <a href="${fileUrl || "#"}" class="list__item__source" data-action="url" title="${fileUrl}">${fileUrl || ""}</a>
-          <div class="list__item__row">
-            ${buttons}
-            <span class="list__item__canceled">${status}</span>
-          </div>
-        </div>
-      </div>`;
-    }
+    contentDiv.appendChild(controlsDiv);
 
-    if (event.paused) {
-      status = t("paused") || "Paused";
-      progressClass = "paused";
-      buttons = Template.button("primary", "resume", t("resume") || "Resume") + Template.button("secondary", "cancel", t("cancel") || "Cancel");
-    } else {
-      status = "";
-      progressClass = "in-progress";
-      buttons = Template.button("primary", "pause", t("pause") || "Pause") + Template.button("secondary", "cancel", t("cancel") || "Cancel");
-    }
-    if (event.totalBytes > 0) {
-      progressWidth = ((100 * event.bytesReceived) / event.totalBytes).toFixed(1) + "%";
-    }
+    // Append icon, content, THEN tiny-x-wrap (not first!)
+    div.appendChild(iconDiv);
+    div.appendChild(contentDiv);
 
-    const extraClass = [
-      "download",
-      !exists ? "removed" : "",
-      event.state === "interrupted" ? "canceled" : "",
-      progressClass,
-      this.isDangerous(event) ? "danger" : ""
-    ].join(" ").trim();
+    // Tiny "X" erase button -- appended LAST so it overlays, not grid
+    const xWrap = document.createElement("div");
+    xWrap.className = "tiny-x-wrap";
+    xWrap.appendChild(Template.tinyXButton());
+    div.appendChild(xWrap);
 
-    const defaultFileIcon = `data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACgAAAAoCAYAAACM/rhtAAACzElEQVRYhe2YT3LaMBTGP3VgmAZqPOlFegA6JCG3yarXYMMqu3TDFF+DK/QGzQ3a6SYbS68LWViS9SRZZrrKNwgL2U/++f2RjYF3T`;
-
-    return `<div id="download-${event.id}" class="list__item ${extraClass}" data-id="${event.id}">
-      <div class="list__item__icon">
-        <img id="icon-${event.id}" data-default="${defaultFileIcon}" src="${iconCache[event.id] || defaultFileIcon}">
-      </div>
-      <div class="list__item__content">
-        <p class="list__item__filename" title="${fileName}" data-action="open">${fileName}</p>
-        <a href="${fileUrl || "#"}" class="list__item__source" data-action="url" title="${fileUrl}">${fileUrl || ""}</a>
-        ${
-          progressClass === "in-progress"
-            ? `<div class="progress"><div class="progress__bar" style="width: ${progressWidth};"></div></div>`
-            : ""
+    // Icon load/update
+    if (ext.downloads.getFileIcon) {
+      ext.downloads.getFileIcon(event.id, { size: 32 }, (iconURL) => {
+        if (iconURL) {
+          iconCache[event.id] = iconURL;
+          iconImg.src = iconURL;
         }
-        <div class="list__item__controls">
-          <div class="list__item__buttons">${buttons}</div>
-          <div class="list__item__status status"></div>
-        </div>
-      </div>
-    </div>`;
+      });
+    }
+
+    return div;
+  },
+
+  getProgressInfoText(event) {
+    let speed = 0;
+    let leftText = "";
+    const received = event.bytesReceived || 0;
+    const total = event.totalBytes || 0;
+    const remaining = total - received;
+    let secondsLeft = 0;
+    if (event.estimatedEndTime) {
+      secondsLeft = (new Date(event.estimatedEndTime) - new Date()) / 1000;
+    }
+    if (secondsLeft > 0) {
+      speed = remaining / secondsLeft;
+    }
+    if (speed) {
+      leftText = `, ${Format.toTime(secondsLeft)} ${t("left") || ""}`;
+    }
+    let mainText = "";
+    if (speed) {
+      mainText = `${Format.toByte(speed)}/s - ${Format.toByte(received)} of ${Format.toByte(total)}${leftText}`;
+    } else if (total) {
+      mainText = `${Format.toByte(received)} of ${Format.toByte(total)}`;
+    } else if (received) {
+      mainText = `${Format.toByte(received)}`;
+    }
+    return mainText;
+  },
+
+  startProgressInfoTimer(node, id) {
+    if (progressTimers[id]) clearInterval(progressTimers[id]);
+    const update = () => {
+      ext.downloads.search({ id: id }, (results) => {
+        if (!results || !results[0]) return;
+        const event = results[0];
+        const progressBar = node.querySelector(".progress__bar");
+        if (progressBar && event.totalBytes > 0) {
+          progressBar.style.width = ((100 * event.bytesReceived) / event.totalBytes).toFixed(1) + "%";
+        }
+        const infoDiv = node.querySelector(".list__item__progressinfo");
+        if (infoDiv) {
+          infoDiv.textContent = this.getProgressInfoText(event);
+        }
+        // Always re-enable all buttons on update
+        const buttons = node.querySelectorAll("button[data-action],.tiny-x");
+        buttons.forEach(b => b.disabled = false);
+      });
+    };
+    progressTimers[id] = setInterval(update, 1000);
+    update();
+  },
+
+  updateDownloadNode(node, event) {
+    const fileName = this.getProperFilename(event.filename) || "";
+    const fileUrl = event.finalUrl || event.url || "";
+
+    const filenameP = node.querySelector(".list__item__filename");
+    if (filenameP) {
+      filenameP.title = fileName;
+      filenameP.textContent = fileName;
+    }
+
+    const urlA = node.querySelector(".list__item__source");
+    if (urlA) {
+      urlA.title = fileUrl;
+      urlA.href = fileUrl || "#";
+      urlA.textContent = fileUrl || "";
+      urlA.style.display = fileUrl ? "" : "none";
+    }
+
+    const progressBar = node.querySelector(".progress__bar");
+    if (progressBar) {
+      let progressWidth = "0%";
+      if (event.totalBytes > 0) {
+        progressWidth = ((100 * event.bytesReceived) / event.totalBytes).toFixed(1) + "%";
+      }
+      progressBar.style.width = progressWidth;
+    }
+
+    const infoDiv = node.querySelector(".list__item__progressinfo");
+    if (infoDiv) {
+      infoDiv.textContent = this.getProgressInfoText(event);
+    }
+
+    const buttons = node.querySelectorAll("button[data-action],.tiny-x");
+    buttons.forEach(b => b.disabled = false);
+
+    const iconImg = node.querySelector(`#icon-${event.id}`);
+    if (iconImg && ext.downloads.getFileIcon) {
+      ext.downloads.getFileIcon(event.id, { size: 32 }, (iconURL) => {
+        if (iconURL && iconImg.src !== iconURL) {
+          iconCache[event.id] = iconURL;
+          iconImg.src = iconURL;
+        }
+      });
+    }
   },
 
   refreshDownloadView(id) {
@@ -386,12 +509,8 @@ const App = {
         return;
       }
       if (results[0]) {
-        const $el = document.createElement("div");
-        $el.innerHTML = this.getDownloadView(results[0]);
-        const downloadEl = $(`#download-${id}`);
-        if (downloadEl) {
-          $("#downloads").replaceChild($el.firstChild, downloadEl);
-        }
+        const node = this.prevNodeMap[id];
+        if (node) this.updateDownloadNode(node, results[0]);
       }
     });
   },
@@ -414,14 +533,32 @@ const App = {
     });
   },
 
-  handleClick(event) {
-    const action = event.target.dataset.action;
-    if (!action) return;
+  handleClick(event, btn) {
+    const action = btn && btn.dataset ? btn.dataset.action : null;
 
     event.preventDefault();
 
+    let $el = event.target.closest(".download");
+    let id = $el ? +$el.dataset.id : null;
+
+    // Only allow erase if download is .complete or .canceled
+    if ((btn.classList.contains("tiny-x") || action === "erase") &&
+        $el && ($el.classList.contains("complete") || $el.classList.contains("canceled"))) {
+      if (id) {
+        ext.downloads.erase({ id: id }, () => {
+          if ($el && $el.parentNode) {
+            $el.parentNode.removeChild($el);
+            this.stopTimer(id);
+            this.render();
+          }
+        });
+      }
+      return;
+    }
+
     if (action === "url") {
-      this.openUrl(event.target.href);
+      let href = event.target.href || (btn && btn.href) || "#";
+      this.openUrl(href);
       return;
     }
 
@@ -430,14 +567,14 @@ const App = {
       return;
     }
 
-    const $el = event.target.closest(".download");
-    if (!$el) return;
+    if (!id) return;
 
-    const id = +$el.dataset.id;
+    const buttons = $el.querySelectorAll("button[data-action],.tiny-x");
+    buttons.forEach((b) => b.disabled = true);
 
     if (["resume", "cancel", "pause"].includes(action)) {
       ext.downloads[action](id);
-      this.refreshDownloadView(id);
+      setTimeout(() => this.refreshDownloadView(id), 200);
       if (action === "resume") {
         this.startTimer(id);
       } else {
@@ -462,19 +599,11 @@ const App = {
               console.error(err.message);
               return;
             }
+            setTimeout(() => this.refreshDownloadView(new_id), 200);
             this.startTimer(new_id);
             this.render();
             setTimeout(() => this.render(), 400);
           });
-        }
-      });
-    } else if (action === "erase") {
-      ext.downloads.erase({ id: id }, () => {
-        const $list = $el.parentNode;
-        if ($list) {
-          $list.removeChild($el);
-          this.stopTimer(id);
-          this.render();
         }
       });
     } else if (action === "show") {
@@ -487,103 +616,43 @@ const App = {
   startTimer(id) {
     this.stopTimer(id);
 
-    let progressLastValue = 0;
-    let progressCurrentValue = 0;
-    let progressNextValue = 0;
-    let progressRemainingTime = 0;
-    let progressLastFrame = Date.now();
-
     const timer = () => {
-      const $el = $(`#download-${id}`);
-      if (!$el) return;
+      const node = this.prevNodeMap[id];
+      if (!node) return;
 
-      const $status = $el.querySelector(".status");
+      const infoDiv = node.querySelector(".list__item__progressinfo");
+      if (infoDiv) {
+        ext.downloads.search({ id: id }, (results) => {
+          if (!results || !results[0]) return;
+          infoDiv.textContent = this.getProgressInfoText(results[0]);
+        });
+      }
 
-      ext.downloads.search({ id: id }, (results) => {
-        if ((ext.runtime && ext.runtime.lastError) || (chrome.runtime && chrome.runtime.lastError)) {
-          const err = (ext.runtime && ext.runtime.lastError) || (chrome.runtime && chrome.runtime.lastError);
-          console.error(err.message);
-          this.stopTimer(id);
-          return;
-        }
-
-        const event = results[0];
-        if (!event) {
-          this.stopTimer(id);
-          this.render();
-          return;
-        }
-
-        if (event.state !== "complete") {
-          let speed = 0;
-          let left_text = "";
-          const remainingBytes = event.totalBytes - event.bytesReceived;
-          let remainingSeconds = 0;
-          if (event.estimatedEndTime) {
-            remainingSeconds = (new Date(event.estimatedEndTime) - new Date()) / 1000;
+      const progressBar = node.querySelector(".progress__bar");
+      if (progressBar) {
+        ext.downloads.search({ id: id }, (results) => {
+          if (!results || !results[0]) return;
+          let event = results[0];
+          let progressWidth = "0%";
+          if (event.totalBytes > 0) {
+            progressWidth = ((100 * event.bytesReceived) / event.totalBytes).toFixed(1) + "%";
           }
-          if (remainingSeconds > 0) {
-            speed = remainingBytes / remainingSeconds;
-          }
-          if (speed) {
-            left_text = `, ${Format.toTime(remainingSeconds)} ${t("left") || ""}`;
-          }
-          if ($status) {
-            $status.textContent = `${Format.toByte(speed)}/s - ${Format.toByte(event.bytesReceived)} of ${Format.toByte(
-              event.totalBytes
-            )}${left_text}`;
-            if (event.bytesReceived && event.bytesReceived === event.totalBytes) {
-              $status.textContent = Format.toByte(event.totalBytes);
-            }
-          }
-        } else {
-          if ($status) $status.textContent = "";
-          this.stopTimer(id);
-          this.refreshDownloadView(event.id);
-        }
-      });
+          progressBar.style.width = progressWidth;
+        });
+      }
+      const buttons = node.querySelectorAll("button[data-action],.tiny-x");
+      buttons.forEach(b => b.disabled = false);
     };
 
     this.timers[id] = setInterval(timer, 1000);
     setTimeout(timer, 1);
-
-    const progressAnimationFrame = () => {
-      const $el = $(`#download-${id}`);
-      if (!$el) return;
-
-      const $progress = $el.querySelector(".progress__bar");
-
-      const now = Date.now();
-      const elapsed = now - progressLastFrame;
-      const remainingProgress = progressNextValue - progressCurrentValue;
-      progressLastFrame = now;
-
-      if (progressRemainingTime > 0 && remainingProgress > 0) {
-        progressCurrentValue += (elapsed / progressRemainingTime) * remainingProgress;
-        progressRemainingTime -= elapsed;
-
-        if ($progress) {
-          $progress.style.width = (100 * progressCurrentValue).toFixed(1) + "%";
-        }
-      }
-
-      if (this.timers[id]) {
-        requestAnimationFrame(progressAnimationFrame);
-      }
-    };
-
-    requestAnimationFrame(progressAnimationFrame);
   },
 
   stopTimer(id) {
     clearInterval(this.timers[id]);
     delete this.timers[id];
-  },
-
-  elementFromHtml(html) {
-    const $el = document.createElement("div");
-    $el.innerHTML = html;
-    return $el.firstChild;
+    clearInterval(progressTimers[id]);
+    delete progressTimers[id];
   },
 
   getProperFilename(filename) {
